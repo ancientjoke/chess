@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<style>
+		p{
+			font-family: 'Merriweather', serif;
+			font-size: 180%;
+			line-height:10px;
+			margin-bottom: 0px;
+			text-align: center;
+		}
+		input {
+			position: relative;
+			top: -5px;
+		}
+		.odc {
+			width: 25px;
+			margin: auto;
+			overflow: visible;
+		}
+		.idc img {
+			display: block;
+			position: absolute;
+		}
+		.idc {
+			margin-left: 20px;
+			width: 100px;
+		}
+		#bot {
+			position: relative;
+			margin-top: 585px;
+		}
+		.button {
+			background-color: #008CBA;
+			border: none;
+			color: white;
+			padding: 1px 6px;
+			display: inline-block;
+			font-size: 18px;
+			cursor: pointer;
+			position: relative;
+			top: -4px;
+			border-radius: 4px;
+		}
+	</style>
+	<link href="https://fonts.googleapis.com/css?family=Merriweather" rel="stylesheet"> 
+</head>
+<body>
+
+	<center>
+	<font face="Merriweather, serif" size="6">
+	<form id="moveInput">
+	Move: <input name="name" type="text" size="25" onkeypress="handleInput(event)" spellcheck="false" autocomplete="off">
+	<button class="button" onclick="return giveInfo1()">?</button>
+	</form>
+	</font>
+	</center>
+	
+	<p id="info1"><br></p>
+	<p id="info2">White's move</p>
+	<p><br></p>
+	<div class="odc" id="outerDisplay">	
+		<div class="idc" id="innerDisplay"></div>
+	</div>
+	<div id="bot">
+		<p id="b"></p>
+	</div>
+
+<script>
+var boardy = new Board();
+//preloading images
+document.getElementById("innerDisplay").innerHTML = '<img src="pics/chessboardrotated.png" style="margin-left: -320px"/>';
+document.getElementById("innerDisplay").innerHTML = '<img src="pics/checkindicator.png" style="margin-left: -320px"/>';
+printBoard(boardy);
+
+//king positions. Important for checkmate tests and the like
+var wkPosition = boardy.grid[1][5].position;
+var bkPosition = boardy.grid[8][5].position;
+
+//en passant info
+var doubleJumpers = [false, false]; //[previousState, currentState]
+var lastMoveWasEnPassant = false;
+
+//pawn promotion info
+var pawnPosition;
+var promotingPawn = false;
+var savedMoveText;
+
+var stillGoing = true;
+
+// Triggered on key press. Checks text box for rotation input,
+// movement input, and pawn promotion input (if applicable)
+function handleInput(e){
+	if(e.keyCode === 13){ // on enter
+		var form = document.getElementById("moveInput");
+		var text = form.elements["name"].value.toLowerCase();
+		rotating = getRotationInput(text, form);
+		if (!rotating){
+			if (promotingPawn){
+				getPawnPromotionInput(text, form);
+			} else {
+				getMoveInput(text, form);
+			}
+		}
+		e.preventDefault();
+	}
+	return false;
+}
+
+// Attempts to parse the text as a rotation command. Returns true if it was
+// accepted as a rotation command, false otherwise
+function getRotationInput(text, form){
+	if (text === "ro" || text === "rotate"){
+		boardy.rotated = !boardy.rotated;
+		form.elements["name"].value = "";
+		printBoard(boardy);
+		return true;
+	} else if (text === "ar" || text === "auto-rotate"){
+		boardy.autoRotate = !boardy.autoRotate;
+		form.elements["name"].value = "";
+		return true;
+	} else {
+		document.getElementById("info1").innerHTML="Invalid command";
+		return false;
+	}
+}
+
+// Reads input from the textbox and parses it. Checks if that move is
+// valid based on board positions and the indicated piece. If not valid,
+// that is displayed. If valid, control is passed to ValidMoveProcedure()
+function getMoveInput(moveText, moveForm){
+	if (stillGoing){
+		//check for correct string format
+		if (moveText.length !== 5|| moveText.substring(2, 3) !== " "){
+			document.getElementById("info1").innerHTML="Invalid command";
+		} else {
+			//parse for start and end positions, check if they are valid
+			var startPosition = getCoordsFromInput(moveText.substring(0,2));
+			var endPosition = getCoordsFromInput(moveText.substring(3, 5));
+			if (startPosition.x === -1 || startPosition.y === -1
+				|| endPosition.x === -1 || endPosition.y === -1){
+				document.getElementById("info1").innerHTML="Invalid position(s)";
+			} else {
+				//check if the movement itself is valid
+				var valid = checkMoveValidity(startPosition, endPosition);
+				
+				if (valid){
+				
+					validMoveProcedure(startPosition, endPosition, moveForm, moveText);
+					
+					if (boardy.autoRotate && !promotingPawn){ // rotate if autorotate is on and we aren't
+						boardy.rotated = !boardy.rotated;	  // in the process of promoting a pawn
+					}
+					printBoard(boardy);
+					updateInfo2Display();
+					
+				} else {
+					document.getElementById("info1").innerHTML="Invalid move";
+				}
+			}
+		}
+	}
+	return false;
+}
+
+//Updates the info2 display
+function updateInfo2Display(){
+	if (promotingPawn && stillGoing){
+		document.getElementById("info2").innerHTML="Choose piece";
+	} else if ((boardy.turn === "white") && stillGoing){
+		document.getElementById("info2").innerHTML="White's move";
+	} else if (stillGoing){
+		document.getElementById("info2").innerHTML="Black's move";
+	}
+}
+
+//Gives info on how to input commands related to moves and rotation
+function giveInfo1(){
+	alert('Input move commands by typing the starting and ending coordinates of your move. ' +
+	'For instance "a2 a4" would move white\'s pawn from position a2 to a4. ' +
+	'Typing "rotate" or "ro" will rotate the board 180 degrees. Typing "auto-rotate" or ' +
+	'"ar" will toggle auto-rotation, which rotates the board at the end of each turn. ' +
+	'Auto-rotation is off by default.')
+	return false;
+}
+
+//Gives info on how to input commands related to pawn promotion and rotation
+function giveInfo2(){
+	alert('Input pawn promotion commands by typing the kind of piece you want to ' +
+	'upgrade to. For instance, typing "queen" will upgrade your pawn to a queen. You ' +
+	'can also just type the first letter of the piece you want (i.e. "r" would give you a rook). ' +
+	'Typing "rotate" or "ro" will rotate the board 180 degrees. Typing "auto-rotate" or ' +
+	'"ar" will toggle auto-rotation, which rotates the board at the end of each turn. ' +
+	'Auto-rotation is off by default.')
+	return false;
+}
+
+//Goes through the procedure of applying a valid move to the board. Once applied,
+//checks if that move put the moving player in check. Undoes it if that is the case.
+//Otherwise, checks if it put the other player in check, if it caused a checkmate,
+//stalemate, etc.
+function validMoveProcedure(startPosition, endPosition, moveForm, moveText){
+	var piece = boardy.grid[startPosition.y][startPosition.x];
+	var target = getTarget(startPosition, endPosition);
+	var playerMakingMove = boardy.turn;
+	
+	//apply move, see if put self in check
+	applyMove(startPosition, endPosition);
+	var putSelfInCheck = playerInCheck(playerMakingMove);
+	if (putSelfInCheck){
+		//if put self in check, undo move
+		undoMove(startPosition, endPosition, target);
+		document.getElementById("info1").innerHTML="Invalid move, put's you in check";
+	} else {
+		//otherwise, check if we're promoting a pawn, update stuff
+		pawnPromotion(endPosition);
+		if (promotingPawn){
+			document.getElementById("info1").innerHTML="<br>";
+			savedMoveText = moveText;
+		} else {
+			document.getElementById("info1").innerHTML="Last move was " + moveText;
+		}
+		moveForm.elements["name"].value = "";
+		//see if some endgame condition has been triggered
+		checkEndGameConditions();
+	}
+}
+
+//Checks for checkmates, stalemates, and checks. Updates things appropriately
+function checkEndGameConditions(){
+	if (playerInCheck(boardy.turn)){
+		boardy.check = true;
+	} else {
+		boardy.check = false;
+	}
+	if (checkMate(boardy.turn)){
+		boardy.check = true;
+		stillGoing = false;
+		document.getElementById("b").innerHTML="CHECKMATE!";
+		if (boardy.turn === "white"){
+			document.getElementById("info2").innerHTML = "Black wins!";
+		} else {
+			document.getElementById("info2").innerHTML = "White wins!";
+		}
+	} else if (draw(boardy.turn)){
+		document.getElementById("b").innerHTML="";
+		document.getElementById("info2").innerHTML = "It's a draw!";
+	} else if (playerInCheck(boardy.turn)){
+		document.getElementById("b").innerHTML="CHECK!";
+	} else {
+		document.getElementById("b").innerHTML="";
+	}
+}
+
+// Checks if a move is valid or not based on owner and what sort of piece it is
+// A move which puts the moving player in check IS valid as defined by this function
+function checkMoveValidity(startPosition, endPosition){
+	var piece = boardy.grid[startPosition.y][startPosition.x];
+	if (piece.owner !== boardy.turn || !piece.validMove(endPosition)){
+		return false;
+	}
+	return true;
+}
+
+//returns true if the given player is in check
+function playerInCheck(player){
+	var correctTurn = boardy.turn;
+	var kingPos;
+	
+	//gets the king position of the player in question.
+	//switches whose turn it is to the opposing player temporarily in order to test
+	if (player === "white"){
+		kingPos = wkPosition;
+		boardy.turn = "black";
+	} else {
+		kingPos = bkPosition;
+		boardy.turn = "white";
+	}
+	//see if any position of the board can successfully attack the king
+	for (var i = 1; i < 9; i++){
+		for (var j = 1; j < 9; j++){
+			if (checkMoveValidity(new Position(i, j), kingPos)){
+				boardy.turn = correctTurn;
+				return true;
+			}
+		}
+	}
+	boardy.turn = correctTurn;
+	return false;
+}
+
+//returns true if the given player has lost
+function checkMate(player){
+	return (playerInCheck(player) && everyMoveIsCheck(player));
+}
+
+//returns true if the player is in a stalemate position (subset of draw)
+function stalemate(player){
+	return (!(playerInCheck(player)) && everyMoveIsCheck(player));
+}
+
+//returns true if the game is a draw based on stalemate or
+//impossibility of checkmate
+function draw(player){
+	var total = 0;
+	var bishops = new Array();
+	var horses = 0;
+	for (var i = 1; i < 9; i++){
+		for (var j = 1; j < 9; j++){
+			if (boardy.grid[i][j].owner !== "empty"){
+				total++;
+				if (boardy.grid[i][j] instanceof Bishop){
+					bishops.push(boardy.grid[i][j]);
+				}
+				if (boardy.grid[i][j] instanceof Horse){
+					horses++;
+				}
+			}
+		}
+	}
+	//just kings
+	if (total === 2){
+		return true;
+	}
+	//kings and one bishop or horse
+	if (total === 3 && (bishops.length === 1 || horses === 1)){
+		return true;
+	}
+	//kings and multiple bishops, all on the same color square
+	if (total - 2 === bishops.length){
+		var allSame = true;
+		var color = (bishops[0].position.x + bishops[0].position.y) % 2;
+		for (var i = 1; i < bishops.length; i++){
+			if ((bishops[i].position.x + bishops[i].position.y) % 2 !== color){
+				allSame = false;
+				break;
+			}
+		}
+		if (allSame){
+			return true;
+		}
+	}
+	return stalemate(player);
+}
+
+//returns true if every move a player could make puts them in check
+function everyMoveIsCheck(player){
+	var playersPieces = new Array();
+	//get all their pieces
+	for (var i = 1; i < 9; i++){
+		for (var j = 1; j < 9; j++){
+			if (boardy.grid[i][j].owner === player){
+				playersPieces.push(boardy.grid[i][j]);
+			}
+		}
+	}
+	//for each piece, test validity of moving to every spot on the board
+	//If it's valid, try applying that move, and see if the player is in check
+	//Return true if every one is check
+	for (var m = 0; m < playersPieces.length; m++){
+		for (var i = 1; i < 9; i++){
+			for (var j = 1; j < 9; j++){
+				if (checkMoveValidity(playersPieces[m].position, new Position(i, j))){
+					var startPos = new Position(playersPieces[m].position.y, playersPieces[m].position.x);
+					var endPos = new Position(i, j);
+					var target = getTarget(startPos, endPos);
+					applyMove(startPos, endPos);
+					if (!playerInCheck(player)){
+						undoMove(startPos, endPos, target);
+						return false;
+					} else {
+						undoMove(startPos, endPos, target);
+					}
+				}
+			}
+		}
+	}
+	return true;
+}
+
+//applies the move on the board, flipping whose turn it is.
+function applyMove(startPosition, endPosition){
+	if (boardy.grid[startPosition.y][startPosition.x] instanceof King &&
+		Math.abs(startPosition.x - endPosition.x) === 2){
+		//castling
+		castleApplyMove(startPosition, endPosition);
+		lastMoveWasEnPassant = false;
+		
+	} else if (boardy.grid[startPosition.y][startPosition.x] instanceof Pawn &&
+				Math.abs(startPosition.y - endPosition.y) === 1 && 
+				Math.abs(startPosition.x - endPosition.x) === 1 &&
+				boardy.grid[endPosition.y][endPosition.x] instanceof Empty){
+		//en passant
+		enPassantApplyMove(startPosition, endPosition);
+		lastMoveWasEnPassant = true;
+	} else {
+		//normal move
+		standardApplyMove(startPosition, endPosition);
+		lastMoveWasEnPassant = false;
+	}
+	
+	flipTurns();
+	
+	//update double jump info
+	doubleJumpers[0] = doubleJumpers[1];
+	if (boardy.grid[endPosition.y][endPosition.x] instanceof Pawn &&
+		Math.abs(startPosition.y - endPosition.y) === 2){
+		doubleJumpers[1] = boardy.grid[endPosition.y][endPosition.x];
+	} else {
+		doubleJumpers[1] = false;
+	}
+}
+
+//Called by applyMove() if the move is just an ordinary move
+function standardApplyMove(startPosition, endPosition){
+	boardy.grid[endPosition.y][endPosition.x] = boardy.grid[startPosition.y][startPosition.x];
+	boardy.grid[startPosition.y][startPosition.x] = 
+	new Empty("empty", boardy, new Position(startPosition.y, startPosition.x));
+	var movedPiece = boardy.grid[endPosition.y][endPosition.x];
+	movedPiece.position.y = endPosition.y;
+	movedPiece.position.x = endPosition.x;
+	
+	//update hasMoved if applicable
+	if (movedPiece instanceof King || movedPiece instanceof Rook){
+		movedPiece.hasMoved[0] = movedPiece.hasMoved[1];
+		movedPiece.hasMoved[1] = true;
+	}
+}
+
+//Called by applyMove() if the move is en passant
+function enPassantApplyMove(startPosition, endPosition){
+	var mover = boardy.grid[startPosition.y][startPosition.x].owner;
+	standardApplyMove(startPosition, endPosition);
+	if (mover === "white"){
+		standardApplyMove(startPosition, new Position(endPosition.y - 1, endPosition.x));
+	} else { // mover === "black"
+		standardApplyMove(startPosition, new Position(endPosition.y + 1, endPosition.x));
+	}
+}
+
+//Called by applyMove() if the move is castling
+function castleApplyMove(startPosition, endPosition){
+	//move king
+	standardApplyMove(startPosition, endPosition);
+	//move rook
+	var rook;
+	if (endPosition.x - startPosition.x === 2){
+		rook = boardy.grid[endPosition.y][endPosition.x + 1];
+		standardApplyMove(new Position(rook.position.y, rook.position.x), 
+						new Position(rook.position.y, rook.position.x - 2));
+	} else { //endPosition.x - startPosition.x === -2
+		rook = boardy.grid[endPosition.y][endPosition.x - 2];
+		standardApplyMove(new Position(rook.position.y, rook.position.x), 
+						new Position(rook.position.y, rook.position.x + 3));
+	}
+	
+}
+
+//After a move has been made, if the player that made that move is in check,
+//it wasn't actually valid in the grander sense, so we undo it. Function takes 
+//the start position and end position of said move, as well as whatever piece was taken
+//(or Empty), and puts them back in their proper places. Switches whose turn it is back also.
+function undoMove(startPosition, endPosition, target){
+	
+	if (boardy.grid[endPosition.y][endPosition.x] instanceof King &&
+		Math.abs(startPosition.x - endPosition.x) === 2){
+		//castling
+		castleUndoMove(startPosition, endPosition, target);
+	} else if (lastMoveWasEnPassant){
+		//en passant
+		enPassantUndoMove(startPosition, endPosition, target);
+		lastMoveWasEnPassant = false;
+	} else {
+		//normal move
+		standardUndoMove(startPosition, endPosition, target);
+	}
+	
+	flipTurns();
+	
+	//update double jump info
+	doubleJumpers[1] = doubleJumpers[0];
+}
+
+//Called by undoMove if the move was just a ordinary move
+function standardUndoMove(startPosition, endPosition, target){
+	boardy.grid[startPosition.y][startPosition.x] = boardy.grid[endPosition.y][endPosition.x];
+	boardy.grid[endPosition.y][endPosition.x] = target;
+	var unMovedPiece = boardy.grid[startPosition.y][startPosition.x];
+	unMovedPiece.position.y = startPosition.y;
+	unMovedPiece.position.x = startPosition.x;
+	
+	if (unMovedPiece instanceof King || unMovedPiece instanceof Rook){
+		unMovedPiece.hasMoved[1] = unMovedPiece.hasMoved[0];
+	}
+}
+
+//Called by undoMove if if was an en passant move
+function enPassantUndoMove(startPosition, endPosition, target){
+	var mover = boardy.grid[endPosition.y][endPosition.x].owner;
+	if (mover === "white"){
+		standardUndoMove(startPosition, new Position(endPosition.y - 1, endPosition.x), target);
+	} else { //mover === "black"
+		standardUndoMove(startPosition, new Position(endPosition.y + 1, endPosition.x), target);
+	}
+	standardUndoMove(startPosition, endPosition, new Empty("empty", new Position(endPosition.y, endPosition.x)));
+}
+
+//Called by undoMove if the move was a castling move
+function castleUndoMove(startPosition, endPosition, target){
+	standardUndoMove(startPosition, endPosition, target);
+	var rook;
+	if (endPosition.x - startPosition.x === 2){
+		rook = boardy.grid[startPosition.y][startPosition.x + 1];
+		standardUndoMove(new Position(rook.position.y, rook.position.x + 2),
+						new Position(rook.position.y, rook.position.x), 
+						new Empty("empty", new Position(rook.position.y, rook.position.x)));
+						
+	} else { //endPosition.x - startPosition.x === -2
+		rook = boardy.grid[startPosition.y][startPosition.x - 1];
+		standardUndoMove(new Position(rook.position.y, rook.position.x - 3),
+						new Posiion(rook.position.y, rook.position.x),
+						new Empty("empty", new Position(rook.position.y, rook.position.x)));
+		
+	}
+}
+
+//switches whose turn it is
+function flipTurns(){
+	if (boardy.turn === "white"){
+		boardy.turn = "black";
+	} else {
+		boardy.turn = "white";
+	}
+}
+
+//returns the target of a given move. This will almost always be the piece
+//in position endPosition.y, endPosition.x
+//The exception is when the move is en passant
+function getTarget(startPosition, endPosition){
+	if (boardy.grid[startPosition.y][startPosition.x].owner === "black" && 
+		boardy.grid[endPosition.y][endPosition.x].owner === "empty" &&
+		(endPosition.y + 1 < 9) &&
+		boardy.grid[endPosition.y + 1][endPosition.x].owner === "white" &&
+		boardy.grid[endPosition.y + 1][endPosition.x] instanceof Pawn &&
+		boardy.grid[endPosition.y + 1][endPosition.x] === doubleJumpers[1]){
+			return boardy.grid[endPosition.y + 1][endPosition.x];
+	}
+	if (boardy.grid[startPosition.y][startPosition.x].owner === "white" && 
+		boardy.grid[endPosition.y][endPosition.x].owner === "empty" &&
+		(endPosition.y - 1 > 0) && 
+		boardy.grid[endPosition.y - 1][endPosition.x].owner === "black" &&
+		boardy.grid[endPosition.y - 1][endPosition.x] instanceof Pawn &&
+		boardy.grid[endPosition.y - 1][endPosition.x] === doubleJumpers[1]){
+			return boardy.grid[endPosition.y - 1][endPosition.x];
+	}
+	return boardy.grid[endPosition.y][endPosition.x];
+}
+
+//Sets things up for pawn promotion input, if applicable
+function pawnPromotion(endPosition){
+	if ((endPosition.y === 1 || endPosition.y === 8) && boardy.grid[endPosition.y][endPosition.x] instanceof Pawn){
+		pawnPosition = endPosition;
+		promotingPawn = true;
+		document.getElementById("moveInput").innerHTML='Piece: <input name="name" type="text" size="25"' +
+		' onkeypress="handleInput(event)" spellcheck="false" autocomplete="off">' +
+		' <button class="button" onclick="return giveInfo2()">?</button>';
+	}
+	
+}
+
+//Parses input for pawn promotion. Promotes if input is valid
+function getPawnPromotionInput(pawnText, pawnForm){
+	if (stillGoing){
+		if (pawnText === "q" || pawnText === "queen" ||
+			pawnText === "b" || pawnText === "bishop" ||
+			pawnText === "r" || pawnText === "rook" ||
+			pawnText === "h" || pawnText === "horse" || pawnText === "knight"){
+			
+			var pawn = boardy.grid[pawnPosition.y][pawnPosition.x];
+			if (pawnText === "q" || pawnText === "queen"){
+				boardy.grid[pawnPosition.y][pawnPosition.x] = new Queen(pawn.owner, pawn.position);
+			} else if (pawnText === "b" || pawnText === "bishop"){
+				boardy.grid[pawnPosition.y][pawnPosition.x] = new Bishop(pawn.owner, pawn.position);
+			} else if (pawnText === "r" || pawnText === "rook"){
+				boardy.grid[pawnPosition.y][pawnPosition.x] = new Rook(pawn.owner, pawn.position);
+			} else if (pawnText === "h" || pawnText === "horse" || pawnText === "knight"){
+				boardy.grid[pawnPosition.y][pawnPosition.x] = new Horse(pawn.owner, pawn.position);	
+			}
+			if (boardy.autoRotate){
+				boardy.rotated = !boardy.rotated;
+			}
+			printBoard(boardy);
+			document.getElementById("info1").innerHTML="Last move was " + savedMoveText;
+			pawnForm.elements["name"].value = "";
+			document.getElementById("moveInput").innerHTML='Move: <input name="name" type="text" ' +
+				'size="25" onkeypress="handleInput(event)" spellcheck="false" autocomplete="off">' +
+				' <button class="button" onclick="return giveInfo1()">?</button>';
+			promotingPawn = false;
+			checkEndGameConditions();
+			updateInfo2Display();
+		} else {
+			document.getElementById("info1").innerHTML="Invalid piece";
+		}
+	}
+}
+
+//parses string input ("a4" for instance) to get coordinates on the board,
+//which are returned as a position pair
+function getCoordsFromInput(stringInput){
+	var stringX = stringInput.substring(0, 1);
+	var stringY = stringInput.substring(1, 2);
+	var numX, numY;
+	switch (stringX) {
+		case "a":
+			numX = 1;
+			break;
+		case "b":
+			numX = 2;
+			break;
+		case "c":
+			numX = 3;
+			break;
+		case "d":
+			numX = 4;
+			break;
+		case "e":
+			numX = 5;
+			break;
+		case "f":
+			numX = 6;
+			break;
+		case "g":
+			numX = 7;
+			break;
+		case "h":
+			numX = 8;
+			break;
+		default:
+			numX = -1;
+	}
+	numY = parseInt(stringY);
+	if (isNaN(numY) || numY < 1 || numY > 8){
+		numY = -1;
+	}
+	return new Position(numY, numX);
+}
+
+//prints the given board
+function printBoard(board){
+	var kingPos;
+	if (boardy.turn === "white"){
+		kingPos = wkPosition;
+	} else {
+		kingPos = bkPosition;
+	}
+	if (!board.rotated){ //normal board
+		printNonRotatedBoard(board, kingPos);
+	} else { //rotated board
+		printRotatedBoard(board, kingPos);
+	}
+}
+
+//prints the non rotated board
+function printNonRotatedBoard(board, kingPos){
+	document.getElementById("innerDisplay").innerHTML = '<img src="pics/chessboard.png" style="margin-left: -320px"/>';
+	if (boardy.check){
+		document.getElementById("innerDisplay").innerHTML += 
+		'<img src="pics/checkindicator.png" ' + formatStyleForNonRotatedPosition(kingPos);
+	}
+	for (var i = 8; i > 0; i--){
+		for (var j = 1; j < 9; j++){
+			if (board.grid[i][j].owner !== "empty"){
+				document.getElementById("innerDisplay").innerHTML += 
+					'<img src='+ getPicDisplay(board.grid[i][j]) + formatStyleForNonRotatedPosition(board.grid[i][j].position);
+			}
+		}
+	}
+}
+
+//formats html style tags for displaying a piece
+function formatStyleForNonRotatedPosition(position){
+	var leftShift = -320 + position.x * 64;
+	leftShift = '' + leftShift + 'px;';
+	var downShift = -64 * position.y + 512;
+	downShift = '' + downShift + 'px;';
+	return ' style="margin-left: ' + leftShift +  ' margin-top: ' + downShift + '"/>';
+}
+
+//prints the rotated board
+function printRotatedBoard(board, kingPos){
+	document.getElementById("innerDisplay").innerHTML = '<img src="pics/chessboardrotated.png" style="margin-left: -320px"/>';
+	if (boardy.check){
+		document.getElementById("innerDisplay").innerHTML += 
+		'<img src="pics/checkindicator.png" ' + formatStyleForRotatedPosition(kingPos);
+	}
+	for (var i = 8; i > 0; i--){
+		for (var j = 1; j < 9; j++){
+			if (board.grid[i][j].owner !== "empty"){
+				document.getElementById("innerDisplay").innerHTML += 
+					'<img src='+ getPicDisplay(board.grid[i][j]) + formatStyleForRotatedPosition(board.grid[i][j].position);
+			}
+		}
+	}
+}
+
+//formats html style tags for displaying a rotated piece
+function formatStyleForRotatedPosition(position){
+	var leftShift = 256 - position.x * 64;
+	leftShift = '' + leftShift + 'px;';
+	var downShift = 64 * position.y - 64;
+	downShift = '' + downShift + 'px;';
+	return ' style="margin-left: ' + leftShift +  ' margin-top: ' + downShift + '"/>';
+}
+
+//Takes in a piece object and returns the filepath of the image that should be displayed
+function getPicDisplay(piece){
+	return '"pics/' + piece.owner + piece.constructor.name.toLowerCase() + '.png"';
+}
+
+//Creates a new board, initialized with pieces in starting positions
+function Board(){
+	this.turn = "white";
+	this.rotated = false;
+	this.autoRotate = false;
+	this.check = false //true if current turn's player is in check
+	this.grid = new Array();
+	this.grid[0] = "0 a b c d e f g h";
+	for (var i = 1; i < 9; i++){
+		this.grid[i] = new Array();
+		this.grid[i][0] = i;
+	}
+	fillRowWithPieces("white", 1, this);
+	fillRowWithPawns("white", 2, this);
+	for (var i = 3; i < 7; i++){
+		fillRowWithEmpty(i, this);
+	}
+	fillRowWithPawns("black", 7, this);
+	fillRowWithPieces("black", 8, this);
+}
+
+//Fills the given row on the given board with Pawns belonging to the given owner
+function fillRowWithPawns(owner, row, board){
+	for (var i = 1; i < 9; i++){
+		board.grid[row][i] = new Pawn(owner, new Position(row, i));
+	}
+}
+
+//Fills the given row on the given board with empty spaces
+function fillRowWithEmpty(row, board){
+	for (var i = 1; i < 9; i++){
+		board.grid[row][i] = new Empty("empty", new Position(row, i));
+	}
+}
+
+//Fills the given row on the given board with Pawn, Horse, Bishop, etc, belonging
+//to the given owner
+function fillRowWithPieces(owner, row, board){
+	board.grid[row][1] = new Rook(owner, new Position(row, 1));
+	board.grid[row][2] = new Horse(owner, new Position(row, 2));
+	board.grid[row][3] = new Bishop(owner, new Position(row, 3));
+	board.grid[row][4] = new Queen(owner, new Position(row, 4));
+	board.grid[row][5] = new King(owner, new Position(row, 5));
+	board.grid[row][6] = new Bishop(owner, new Position(row, 6));
+	board.grid[row][7] = new Horse(owner, new Position(row, 7));
+	board.grid[row][8] = new Rook(owner, new Position(row, 8));
+}
+
+//Creates a position pair. Notice the unusual ordering (y, x)
+function Position(y, x){
+	this.x = x;
+	this.y = y;
+}
+
+//Rook constructor
+function Rook(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.hasMoved = [false, false];
+	this.validMove = function(endPosition){
+		return rookMovement(position, endPosition, owner);
+	};
+}
+
+//rook movement factored out of Rook class so it can
+//be used both by Rook and by Queen
+function rookMovement(position, endPosition, owner){
+	if (position.x === endPosition.x){
+		//vertical movement
+	
+		var yDif = endPosition.y - position.y;
+		if (yDif > 0){
+			//moving upward on board
+			
+			for (var i = 1; i < yDif; i++){
+				if (!(boardy.grid[i + position.y][position.x] instanceof Empty)){
+					return false;
+				}
+			}
+			if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+			return false;
+		} else {
+			//moving downward on board
+			yDif = -1 * yDif;
+			for (var i = 1; i < yDif; i++){
+				if (!(boardy.grid[position.y - i][position.x] instanceof Empty)){
+					return false;
+				}
+			}
+			if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+			return false;
+		}
+	} else if (position.y === endPosition.y){
+	//horizontal movement
+		
+		var xDif = endPosition.x - position.x;
+		if (xDif > 0){
+			//moving right on board
+			
+			for (var i = 1; i < xDif; i++){
+				if(!(boardy.grid[position.y][i + position.x] instanceof Empty)){
+					return false;
+				}
+			}
+			if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+			return false;
+		} else {
+			//moving left on board
+			xDif = -1 * xDif;
+			for (var i = 1; i < xDif; i++){
+				if (!(boardy.grid[position.y][position.x - i] instanceof Empty)){
+					return false;
+				}
+			}
+			if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+			return false;
+		}
+	} else {
+		return false;
+	}
+}
+
+//Horse constructor. Horse instead of Knight because K was
+//taken by the King when an ascii display was in use
+function Horse(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.validMove = function(endPosition){
+		var xDif = endPosition.x - position.x;
+		var yDif = endPosition.y - position.y;
+		if ((Math.abs(yDif) === 2 && Math.abs(xDif) === 1)
+			|| (Math.abs(yDif) === 1 && Math.abs(xDif) === 2)){
+			if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+			return false;
+		}
+		return false;
+	};
+}
+
+//Bishop constructor
+function Bishop(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.validMove = function(endPosition){
+		return bishopMovement(position, endPosition, owner);
+	};
+}
+
+//bishop movement factored out of Bishop class so it can
+//be used both by Bishop and by Queen
+function bishopMovement(position, endPosition, owner){
+	var yDif = endPosition.y - position.y;
+	var xDif = endPosition.x - position.x;
+	if (yDif > 0 && xDif > 0 && xDif === yDif){
+		//up-right movement
+		for (var i = 1; i < yDif; i++){
+			if (!(boardy.grid[position.y + i][position.x + i] instanceof Empty)){
+				return false;
+			}
+		}
+		if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+		return false;
+		
+	} else if (yDif > 0 && xDif < 0 && xDif * -1 === yDif){
+		//up-left movement
+		
+		for (var i = 1; i < yDif; i++){
+			if (!(boardy.grid[position.y + i][position.x - i] instanceof Empty)){
+				return false;
+			}
+		}
+		if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+		return false;
+		
+	} else if (yDif < 0 && xDif < 0 && xDif === yDif){
+		//down-left movement
+		
+		for (var i = 1; i < yDif * -1; i++){
+			if (!(boardy.grid[position.y - i][position.x - i] instanceof Empty)){
+				return false;
+			}
+		}
+		if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+		return false;
+		
+	} else if (yDif < 0 && xDif > 0 && xDif === yDif * -1){
+		//down-right movement
+		
+		for (var i = 1; i < xDif; i++){
+			if (!(boardy.grid[position.y - i][position.x + i] instanceof Empty)){
+				return false;
+			}
+		}
+		if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+				return true;
+			}
+		return false;
+	} else {
+		return false;
+	}
+}
+
+//Queen constructor
+function Queen(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.validMove = function(endPosition){
+		return (bishopMovement(position, endPosition, owner) || 
+				rookMovement(position, endPosition, owner));
+	};
+}
+
+//King constructor
+function King(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.hasMoved = [false, false]; //[previousState, currentState]
+	this.validMove = function(endPosition){
+		var xDif = endPosition.x - position.x;
+		var yDif = endPosition.y - position.y;
+		if (yDif === 0 && Math.abs(xDif) === 2){
+			//castling
+			
+			if (playerInCheck(boardy.turn)){
+				return false;
+			}
+			var rook;
+			var spaceBetweenSafe = true;
+			if (xDif === 2){
+				rook = boardy.grid[position.y][position.x + 3];
+				if (!(boardy.grid[position.y][position.x + 1] instanceof Empty) ||
+					!(boardy.grid[position.y][position.x + 2] instanceof Empty)){
+						return false;
+				}
+				var pos0 = new Position(position.y, position.x);
+				var pos1 = new Position(position.y, position.x + 1);
+				standardApplyMove(pos0, pos1);
+				if (playerInCheck(boardy.turn)){
+					spaceBetweenSafe = false;
+				}
+				standardUndoMove(pos0, pos1, new Empty("empty", pos1));
+				if (!spaceBetweenSafe){
+					return false;
+				}
+			} else { //xDif === -2
+				rook = boardy.grid[position.y][position.x - 4];
+				if (!(boardy.grid[position.y ][position.x - 1] instanceof Empty) ||
+					!(boardy.grid[position.y ][position.x - 2] instanceof Empty) ||
+					!(boardy.grid[position.y][position.x - 3] instanceof Empty)){
+					return false;
+				}
+				var pos0 = new Position(position.y, position.x);
+				var pos1 = new Position(position.y, position.x - 1);
+				standardApplyMove(pos0, pos1);
+				if (playerInCheck(boardy.turn)){
+					spaceBetweenSafe = false;
+				}
+				standardUndoMove(pos0, pos1, new Empty("empty", pos1));
+				if (!spaceBetweenSafe){
+					return false;
+				}
+			}
+			if (!(rook instanceof Rook) || !(rook.owner === owner) || rook.hasMoved[1] || this.hasMoved[1]){
+				return false;
+			}
+			return true;
+		}
+		//normal move
+		if (Math.abs(xDif) > 1){
+			return false;
+		}
+		if (Math.abs(yDif) > 1){
+			return false;
+		}
+		if (xDif === 0 && yDif === 0){
+			return false;
+		}
+		if (boardy.grid[endPosition.y][endPosition.x].owner !== owner){
+			return true;
+		}
+		return false;
+	};
+}
+
+//Pawn constructor
+function Pawn(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.validMove = function(endPosition){
+		if (owner === "white"){
+			if (position.x === endPosition.x){
+				//non attack move
+				if (position.y + 1 === endPosition.y 
+					&& boardy.grid[endPosition.y][endPosition.x] instanceof Empty){
+					//normal move
+					return true;
+					
+				} else if (position.y + 2 === endPosition.y 
+							&& boardy.grid[endPosition.y - 1][endPosition.x] instanceof Empty
+							&& boardy.grid[endPosition.y][endPosition.x] instanceof Empty
+							&& position.y === 2){
+					//special 2 space move
+					return true;
+				} else {
+					return false;
+				}
+			} else if ((position.y + 1 === endPosition.y && position.x - 1 === endPosition.x) ||
+						(position.y + 1 === endPosition.y && position.x + 1 === endPosition.x)){
+				//attack move
+				
+				if (boardy.grid[endPosition.y][endPosition.x].owner === "black"){
+					return true;
+				} else if (boardy.grid[endPosition.y][endPosition.x].owner === "empty" &&
+							boardy.grid[endPosition.y - 1][endPosition.x].owner === "black" &&
+							boardy.grid[endPosition.y - 1][endPosition.x] instanceof Pawn &&
+							boardy.grid[endPosition.y - 1][endPosition.x] === doubleJumpers[1]){
+					//en passant
+					return true;
+				} else {
+					return false;
+				}
+			} else{
+				return false;
+			}
+		} else { //owner is black
+			if (position.x === endPosition.x){
+				//non attack move
+				
+				if (position.y - 1 === endPosition.y 
+					&& boardy.grid[endPosition.y][endPosition.x] instanceof Empty){
+					//normal move
+					return true;
+					
+				} else if (position.y - 2 === endPosition.y 
+							&& boardy.grid[endPosition.y + 1][endPosition.x] instanceof Empty
+							&& boardy.grid[endPosition.y][endPosition.x] instanceof Empty
+							&& position.y === 7){
+					//special 2 space move
+					return true;
+				} else {
+					return false;
+				}
+			} else if ((position.y - 1 === endPosition.y && position.x - 1 === endPosition.x) ||
+						(position.y - 1 === endPosition.y && position.x + 1 === endPosition.x)){
+				//attack move
+				if (boardy.grid[endPosition.y][endPosition.x].owner === "white"){
+					return true;
+				} else if (boardy.grid[endPosition.y][endPosition.x].owner === "empty" &&
+							boardy.grid[endPosition.y + 1][endPosition.x].owner === "white" &&
+							boardy.grid[endPosition.y + 1][endPosition.x] instanceof Pawn &&
+							boardy.grid[endPosition.y + 1][endPosition.x] === doubleJumpers[1]){
+					//en passant
+					return true;
+				} else {
+					return false;
+				}
+			} else {
+				return false;
+			}
+		}
+	};
+}
+
+//Empty constructor. Empty objects are placed everywhere
+//on the board where there isn't a piece
+function Empty(owner, position){
+	this.owner = owner;
+	this.position = position;
+	this.validMove = function(endPosition){
+		return false;
+	};
+}
+</script>
+</body>
+</html>
